@@ -27,6 +27,7 @@ namespace df
 class Message;
 class ReadManager;
 class RouteBuilder;
+class MetalineManager;
 
 class BackendRenderer : public BaseRenderer
 {
@@ -112,6 +113,8 @@ private:
   TOverlaysRenderData m_overlays;
 
   TUpdateCurrentCountryFn m_updateCurrentCountryFn;
+
+  drape_ptr<MetalineManager> m_metalineManager;
 
 #ifdef DEBUG
   bool m_isTeardowned;

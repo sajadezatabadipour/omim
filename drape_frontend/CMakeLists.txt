@@ -121,6 +121,8 @@ set(
   message_queue.cpp
   message_queue.hpp
   message_subclasses.hpp
+  metaline_manager.cpp
+  metaline_manager.hpp
   my_position.cpp
   my_position.hpp
   my_position_controller.cpp
@@ -137,6 +139,8 @@ set(
   poi_symbol_shape.hpp
   read_manager.cpp
   read_manager.hpp
+  read_metaline_task.cpp
+  read_metaline_task.hpp
   read_mwm_task.cpp
   read_mwm_task.hpp
   render_group.cpp
