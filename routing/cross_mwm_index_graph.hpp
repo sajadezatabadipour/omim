@@ -1,14 +1,24 @@
 #pragma once
-
+#include "routing/cross_mwm_connector.hpp"
+#include "routing/cross_mwm_connector_serialization.hpp"
 #include "routing/num_mwm_id.hpp"
 #include "routing/routing_mapping.hpp"
 #include "routing/segment.hpp"
 
+#include "routing_common/vehicle_model.hpp"
+
+#include "indexer/index.hpp"
+
 #include "geometry/latlon.hpp"
+
+#include "coding/file_container.hpp"
+#include "coding/reader.hpp"
 
 #include "platform/country_file.hpp"
 
 #include "base/math.hpp"
+
+#include "defines.hpp"
 
 #include <map>
 #include <memory>
@@ -23,7 +33,8 @@ class CrossMwmGraph;
 class CrossMwmIndexGraph final
 {
 public:
-  CrossMwmIndexGraph(std::shared_ptr<NumMwmIds> numMwmIds, RoutingIndexManager & indexManager);
+  CrossMwmIndexGraph(Index & index, std::shared_ptr<NumMwmIds> numMwmIds,
+                     std::shared_ptr<VehicleModelFactory> vehicleModelFactory, RoutingIndexManager & indexManager);
   ~CrossMwmIndexGraph();
 
   /// \brief Transition segment is a segment which is crossed by mwm border. That means
@@ -87,7 +98,7 @@ private:
   void ResetCrossMwmGraph();
 
   /// \brief Inserts all ingoing and outgoing transition segments of mwm with |numMwmId|
-  /// to |m_transitionCache|.
+  /// to |m_transitionCache|. It works for OSRM cross-mwm section.
   void InsertWholeMwmTransitionSegments(NumMwmId numMwmId);
 
   /// \brief Fills |borderCrosses| of mwm with |mapping| according to |s|.
@@ -99,9 +110,24 @@ private:
                       std::vector<BorderCross> & borderCrosses);
 
   TransitionSegments const & GetSegmentMaps(NumMwmId numMwmId);
+  CrossMwmConnector const & GetCrossMwmConnectorWithTransitions(NumMwmId numMwmId);
+  CrossMwmConnector const & GetCrossMwmConnectorWithWeights(NumMwmId numMwmId);
 
   std::vector<ms::LatLon> const & GetIngoingTransitionPoints(Segment const & s);
   std::vector<ms::LatLon> const & GetOutgoingTransitionPoints(Segment const & s);
+
+  /// \returns points of |s|. |s| should be a transition segment of mwm with OSRM cross-mwm sections or
+  /// with index graph cross-mwm section.
+  /// \param s is a transition segment of type |isOutgoing|.
+  /// \note the result of the method is returned by value because the size of the vection is ussually one
+  /// or very small in rare cases in OSRM.
+  std::vector<m2::PointD> GetTransitionPoints(Segment const & s, bool isOutgoing);
+
+  MwmValue & GetValue(NumMwmId numMwmId);
+  bool DoesCrossMwmSectionExist(NumMwmId numMwmId);
+
+  /// \brief Fills |twins| with transition segments of feature |ft| of type |isOutgoing|.
+  void GetTransitions(FeatureType const & ft, bool isOutgoing, std::vector<Segment> & twins);
 
   template <class Fn>
   bool LoadWith(NumMwmId numMwmId, Fn && fn)
@@ -124,15 +150,38 @@ private:
     return true;
   }
 
-  RoutingIndexManager & m_indexManager;
+  template <class Fn>
+  CrossMwmConnector const & Deserialize(NumMwmId numMwmId, Fn && fn)
+  {
+    std::unique_ptr<FilesContainerR::TReader> reader =
+        make_unique<FilesContainerR::TReader>(GetValue(numMwmId).m_cont.GetReader(CROSS_MWM_FILE_TAG));
+    ReaderSource<FilesContainerR::TReader> src(*reader);
+    auto const p = m_crossMwmIndexGraph.emplace(numMwmId, CrossMwmConnector(numMwmId));
+    fn(VehicleType::Car, p.first->second, src);
+    return p.first->second;
+  }
+
+  Index & m_index;
   std::shared_ptr<NumMwmIds> m_numMwmIds;
+  std::shared_ptr<VehicleModelFactory> m_vehicleModelFactory;
+
+  // OSRM based cross-mwm information.
+  RoutingIndexManager & m_indexManager;
   /// \note According to the constructor CrossMwmGraph is initialized with RoutingIndexManager &.
   /// But then it is copied by value to CrossMwmGraph::RoutingIndexManager m_indexManager.
   /// It means that there're two copies of RoutingIndexManager in CrossMwmIndexGraph.
   std::unique_ptr<CrossMwmGraph> m_crossMwmGraph;
 
   std::map<NumMwmId, TransitionSegments> m_transitionCache;
-
   std::map<NumMwmId, std::unique_ptr<MappingGuard>> m_mappingGuards;
+
+  // Index graph cross-mwm information
+  /// \note |m_crossMwmIndexGraph| contains cache with transition segments and leap edges.
+  /// Ever mwm in |m_crossMwmIndexGraph| may be in two conditions:
+  /// * with loaded transition segments (after call CrossMwmConnectorSerializer::DeserializeTransitions())
+  /// * with loaded transition segments and with loaded weights
+  ///   (after call CrossMwmConnectorSerializer::DeserializeTransitions()
+  ///   and CrossMwmConnectorSerializer::DeserializeWeights())
+  std::map<NumMwmId, CrossMwmConnector> m_crossMwmIndexGraph;
 };
 }  // routing
