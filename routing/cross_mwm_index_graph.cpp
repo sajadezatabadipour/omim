@@ -11,6 +11,7 @@
 #include "base/stl_helpers.hpp"
 
 #include <algorithm>
+#include <numeric>
 #include <utility>
 
 using namespace platform;
@@ -173,16 +174,24 @@ void CrossMwmIndexGraph::GetTwins(Segment const & s, bool isOutgoing, vector<Seg
   vector<m2::PointD> const transitions = GetTransitionPoints(s, isOutgoing);
   for (m2::PointD const & p : transitions)
   {
+    double constexpr kInvalidDistance = numeric_limits<double>::max();
+    bool exactConformityFound = false;
+    double minDistM = kInvalidDistance;
+    Segment minDistTwinSeg;
     m_index.ForEachInRect([&](FeatureType & ft){
       if (ft.GetID().m_mwmId.GetInfo()->GetType() != MwmInfo::COUNTRY)
         return;
 
-      NumMwmId const numMwmId = m_numMwmIds->GetId(CountryFile(ft.GetID().GetMwmName()));
+      string const mwmName = ft.GetID().GetMwmName();
+      if (mwmName == FeatureID::kInvalidFileName)
+        return;
+
+      NumMwmId const numMwmId = m_numMwmIds->GetId(CountryFile(mwmName));
       if (numMwmId == s.GetMwmId())
         return;
 
       ft.ParseGeometry(FeatureType::BEST_GEOMETRY);
-      if (!m_vehicleModelFactory->GetVehicleModelForCountry(ft.GetID().GetMwmName())->IsRoad(ft))
+      if (!m_vehicleModelFactory->GetVehicleModelForCountry(mwmName)->IsRoad(ft))
         return;
 
       vector<Segment> twinCandidates;
@@ -192,11 +201,23 @@ void CrossMwmIndexGraph::GetTwins(Segment const & s, bool isOutgoing, vector<Seg
         vector<m2::PointD> const twinPoints = GetTransitionPoints(tc, !isOutgoing);
         for (m2::PointD const & tp : twinPoints)
         {
-          if (MercatorBounds::DistanceOnEarth(p, tp) <= kTransitionEqualityDistM)
+          double const distM = MercatorBounds::DistanceOnEarth(p, tp);
+          if (distM == 0.0)
+          {
             twins.push_back(tc);
+            exactConformityFound = true;
+          }
+          if (!exactConformityFound && distM <= kTransitionEqualityDistM && distM < minDistM)
+          {
+            minDistM = distM;
+            minDistTwinSeg = tc;
+          }
         }
       }
     }, GetMwmCrossingNodeEqualityRect(p), scales::GetUpperScale());
+
+    if (!exactConformityFound && minDistM != kInvalidDistance)
+      twins.push_back(minDistTwinSeg);
   }
 
   my::SortUnique(twins);
